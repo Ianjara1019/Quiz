@@ -1,0 +1,3 @@
+toto;10
+Jean;110
+Paul;40
