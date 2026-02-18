@@ -1,299 +1,256 @@
 package serveur;
 
-import data.Scores;
+import data.Themes;
+import serveur.model.ServerConfig;
+import serveur.service.ProtocolParser;
+import serveur.service.ScoreService;
+import serveur.view.ConsoleLogger;
+
 import java.io.*;
 import java.net.*;
 import java.util.*;
 
 /**
- * Serveur Maître - Gère la distribution des tâches et l'agrégation des scores
- * Utilise un système de stockage distribué basé sur le hachage
+ * Serveur Maître (Controller MVC) — Gère la distribution et l'agrégation.
+ *
+ * <p>Architecture :
+ * <ul>
+ *   <li><b>Model</b>  : {@link ServerConfig}, {@link RegistreServeurs}, {@link ScoreService}</li>
+ *   <li><b>View</b>   : {@link ConsoleLogger}</li>
+ *   <li><b>Service</b> : {@link ProtocolParser}, {@link ScoreService}</li>
+ * </ul>
  */
 public class ServeurCentralDistribue {
-    private static final int PORT_MAITRE = 6000;
-    private static final int PORT_COORDINATION = 6001; // pour communiquer avec esclaves
-    private static final int SOCKET_TIMEOUT_MS = 15000;
-    private static final long HEARTBEAT_TIMEOUT_MS = 30000;
-    private RegistreServeurs registre;
-    private Map<String, Integer> scoresGlobaux = new HashMap<>();
-    private final String secretPartage;
-    private final String tokenClient;
+
+    private final ServerConfig config;
+    private final RegistreServeurs registre;
+    private final ScoreService scoreService;
+    private final Themes themes;
+    private final ConsoleLogger log;
+
+    // ────────────────────────────── Construction ──────────────────────────────
 
     public ServeurCentralDistribue() {
-        registre = new RegistreServeurs("data/registre_serveurs.txt");
-        secretPartage = chargerEnv("QUIZ_SHARED_SECRET");
-        tokenClient = chargerEnv("QUIZ_CLIENT_TOKEN");
+        this(ServerConfig.fromEnv());
     }
 
-    /**
-     * Démarre le serveur maître
-     */
+    public ServeurCentralDistribue(ServerConfig config) {
+        this.config = config;
+        this.registre = new RegistreServeurs(config.getFichierRegistre());
+        this.scoreService = new ScoreService(config.getFichierScoresGlobal());
+        this.themes = new Themes(config.getFichierThemes());
+        this.log = new ConsoleLogger("MAITRE");
+    }
+
+    // ──────────────────────────── Démarrage ──────────────────────────────────
+
     public void demarrer() {
-        // Thread 1: Écoute les enregistrements de serveurs esclaves
-        new Thread(this::ecouterEnregistrements).start();
-        
-        // Thread 2: Écoute les demandes clients (redirection)
-        new Thread(this::ecouterClients).start();
-        
-        // Thread 3: Agrège périodiquement les scores
-        new Thread(this::aggregerScoresPeriodiquement).start();
-        
-        // Thread 4: Désactive les serveurs silencieux
-        new Thread(this::surveillerHeartbeats).start();
+        new Thread(this::ecouterEnregistrements, "MasterCoord").start();
+        new Thread(this::ecouterClients, "MasterClients").start();
+        new Thread(this::aggregerScoresPeriodiquement, "MasterAggregation").start();
+        new Thread(this::surveillerHeartbeats, "MasterHeartbeat").start();
 
-        System.out.println("╔════════════════════════════════════════╗");
-        System.out.println("║   SERVEUR MAÎTRE DÉMARRÉ              ║");
-        System.out.println("║   Port coordination: " + PORT_COORDINATION + "            ║");
-        System.out.println("║   Port clients: " + PORT_MAITRE + "                 ║");
-        System.out.println("╚════════════════════════════════════════╝");
+        log.printBannerMaster(config.getPortCoordination(), config.getPortClients());
     }
 
-    /**
-     * Écoute les enregistrements des serveurs esclaves
-     */
+    // ──────────────────────── Coordination esclaves ──────────────────────────
+
     private void ecouterEnregistrements() {
-        try (ServerSocket server = new ServerSocket(PORT_COORDINATION)) {
-            System.out.println("→ En attente d'enregistrements de serveurs esclaves...");
-            
+        try (ServerSocket server = new ServerSocket(config.getPortCoordination())) {
+            log.waiting("En attente d'enregistrements de serveurs esclaves...");
             while (true) {
                 Socket socket = server.accept();
-                new Thread(() -> gererEnregistrement(socket)).start();
+                new Thread(() -> gererEnregistrement(socket), "SlaveReg").start();
             }
         } catch (IOException e) {
-            System.err.println("Erreur serveur coordination: " + e.getMessage());
+            log.error("Erreur serveur coordination: " + e.getMessage());
         }
     }
 
-    /**
-     * Gère l'enregistrement d'un serveur esclave
-     */
     private void gererEnregistrement(Socket socket) {
         try (socket;
-             BufferedReader in = new BufferedReader(
-                new InputStreamReader(socket.getInputStream()));
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
-            
-            socket.setSoTimeout(SOCKET_TIMEOUT_MS);
-            
+
+            socket.setSoTimeout(config.getSocketTimeoutMs());
             String message = in.readLine();
             if (message == null || message.isBlank()) {
                 out.println("ERREUR:Message vide");
                 return;
             }
-            
+
             if (message.startsWith("REGISTER:")) {
-                // Format: REGISTER:id;host;port;theme;partitionDebut;partitionFin
-                String[] parts = message.substring(9).split(";");
-                int index = 0;
-                if (parts.length >= 1 && parts[0].startsWith("token=")) {
-                    String token = parts[0].substring(6);
-                    if (!verifierSecret(token)) {
-                        out.println("ERREUR:Auth");
-                        return;
-                    }
-                    index = 1;
-                } else if (secretPartage != null) {
-                    out.println("ERREUR:Auth");
-                    return;
-                }
-
-                if (parts.length - index < 6) {
-                    out.println("ERREUR:Format register");
-                    return;
-                }
-
-                String id = parts[index];
-                String host = parts[index + 1];
-                int port = Integer.parseInt(parts[index + 2]);
-                String theme = parts[index + 3];
-                int partDebut = Integer.parseInt(parts[index + 4]);
-                int partFin = Integer.parseInt(parts[index + 5]);
-
-                if (!validerId(id) || !validerHost(host) || !validerTheme(theme)) {
-                    out.println("ERREUR:Données invalides");
-                    return;
-                }
-                if (!validerPort(port) || partDebut < 0 || partFin < partDebut) {
-                    out.println("ERREUR:Paramètres invalides");
-                    return;
-                }
-
-                RegistreServeurs.InfoServeur serveur = new RegistreServeurs.InfoServeur(
-                    id, host, port, theme, partDebut, partFin
-                );
-                
-                registre.enregistrer(serveur);
-                out.println("OK:REGISTERED");
-                registre.afficherEtat();
+                traiterRegister(message, out);
+            } else if (message.startsWith("HEARTBEAT:")) {
+                traiterHeartbeat(message, out);
+            } else if (message.startsWith("SCORE:")) {
+                traiterScore(message, out);
             }
-            else if (message.startsWith("HEARTBEAT:")) {
-                // Signaux de vie des serveurs
-                String payload = message.substring(10);
-                String serveurId = payload;
-                if (payload.startsWith("token=")) {
-                    String[] parts = payload.split(";", 2);
-                    String token = parts[0].substring(6);
-                    if (!verifierSecret(token)) {
-                        out.println("ERREUR:Auth");
-                        return;
-                    }
-                    serveurId = parts.length > 1 ? parts[1] : "";
-                } else if (secretPartage != null) {
-                    out.println("ERREUR:Auth");
-                    return;
-                }
-                if (!validerId(serveurId)) {
-                    out.println("ERREUR:Id invalide");
-                    return;
-                }
-                registre.mettreAJourHeartbeat(serveurId);
-                out.println("OK:ALIVE");
-            }
-            else if (message.startsWith("SCORE:")) {
-                // Réception d'un score: SCORE:nom;score;serveurId
-                String[] parts = message.substring(6).split(";");
-                int index = 0;
-                if (parts.length >= 1 && parts[0].startsWith("token=")) {
-                    String token = parts[0].substring(6);
-                    if (!verifierSecret(token)) {
-                        out.println("ERREUR:Auth");
-                        return;
-                    }
-                    index = 1;
-                } else if (secretPartage != null) {
-                    out.println("ERREUR:Auth");
-                    return;
-                }
-                if (parts.length - index < 3) {
-                    out.println("ERREUR:Format score");
-                    return;
-                }
 
-                String nom = parts[index];
-                int score = Integer.parseInt(parts[index + 1]);
-                String serveurId = parts[index + 2];
-                if (!validerNom(nom) || !validerId(serveurId)) {
-                    out.println("ERREUR:Données invalides");
-                    return;
-                }
-                
-                synchronized(scoresGlobaux) {
-                    scoresGlobaux.put(nom, scoresGlobaux.getOrDefault(nom, 0) + score);
-                }
-                
-                out.println("OK:SCORE_SAVED");
-                System.out.println("✓ Score reçu: " + nom + " = " + score);
-            }
-            
         } catch (Exception e) {
-            System.err.println("Erreur enregistrement: " + e.getMessage());
+            log.error("Erreur enregistrement: " + e.getMessage());
         }
     }
 
-    /**
-     * Écoute les demandes des clients et les redirige vers le bon serveur esclave
-     */
+    private void traiterRegister(String message, PrintWriter out) {
+        String[] parts = message.substring(9).split(";");
+        int index = 0;
+
+        if (parts.length >= 1 && parts[0].startsWith("token=")) {
+            if (!verifierSecret(parts[0].substring(6))) { out.println("ERREUR:Auth"); return; }
+            index = 1;
+        } else if (config.getSecretPartage() != null) {
+            out.println("ERREUR:Auth"); return;
+        }
+
+        if (parts.length - index < 6) { out.println("ERREUR:Format register"); return; }
+
+        String id = parts[index];
+        String host = parts[index + 1];
+        int port = Integer.parseInt(parts[index + 2]);
+        String theme = parts[index + 3];
+        int partDebut = Integer.parseInt(parts[index + 4]);
+        int partFin = Integer.parseInt(parts[index + 5]);
+
+        if (!ProtocolParser.validerId(id) || !ProtocolParser.validerHost(host)
+                || !ProtocolParser.validerTheme(theme)
+                || !ProtocolParser.validerPort(port) || partDebut < 0 || partFin < partDebut) {
+            out.println("ERREUR:Données invalides"); return;
+        }
+
+        registre.enregistrer(new RegistreServeurs.InfoServeur(id, host, port, theme, partDebut, partFin));
+        out.println("OK:REGISTERED");
+        registre.afficherEtat();
+    }
+
+    private void traiterHeartbeat(String message, PrintWriter out) {
+        String payload = message.substring(10);
+        String serveurId = payload;
+
+        if (payload.startsWith("token=")) {
+            String[] parts = payload.split(";", 2);
+            if (!verifierSecret(parts[0].substring(6))) { out.println("ERREUR:Auth"); return; }
+            serveurId = parts.length > 1 ? parts[1] : "";
+        } else if (config.getSecretPartage() != null) {
+            out.println("ERREUR:Auth"); return;
+        }
+
+        if (!ProtocolParser.validerId(serveurId)) { out.println("ERREUR:Id invalide"); return; }
+        registre.mettreAJourHeartbeat(serveurId);
+        out.println("OK:ALIVE");
+    }
+
+    private void traiterScore(String message, PrintWriter out) {
+        String[] parts = message.substring(6).split(";");
+        int index = 0;
+
+        if (parts.length >= 1 && parts[0].startsWith("token=")) {
+            if (!verifierSecret(parts[0].substring(6))) { out.println("ERREUR:Auth"); return; }
+            index = 1;
+        } else if (config.getSecretPartage() != null) {
+            out.println("ERREUR:Auth"); return;
+        }
+
+        if (parts.length - index < 3) { out.println("ERREUR:Format score"); return; }
+
+        String nom = parts[index];
+        int score = Integer.parseInt(parts[index + 1]);
+        String serveurId = parts[index + 2];
+
+        if (!ProtocolParser.validerNom(nom) || !ProtocolParser.validerId(serveurId)) {
+            out.println("ERREUR:Données invalides"); return;
+        }
+
+        scoreService.ajouterScore(nom, score);
+        out.println("OK:SCORE_SAVED");
+        log.success("Score reçu: " + nom + " = " + score);
+    }
+
+    // ─────────────────────────── Gestion clients ─────────────────────────────
+
     private void ecouterClients() {
-        try (ServerSocket server = new ServerSocket(PORT_MAITRE)) {
-            System.out.println("→ En attente de clients...");
-            
+        try (ServerSocket server = new ServerSocket(config.getPortClients())) {
+            log.waiting("En attente de clients...");
             while (true) {
                 Socket socket = server.accept();
-                new Thread(() -> gererClient(socket)).start();
+                new Thread(() -> gererClient(socket), "Client").start();
             }
         } catch (IOException e) {
-            System.err.println("Erreur serveur clients: " + e.getMessage());
+            log.error("Erreur serveur clients: " + e.getMessage());
         }
     }
 
-    /**
-     * Gère une demande client et le redirige vers le serveur approprié
-     */
     private void gererClient(Socket socket) {
         try (socket;
-             BufferedReader in = new BufferedReader(
-                new InputStreamReader(socket.getInputStream()));
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
-            
-            socket.setSoTimeout(SOCKET_TIMEOUT_MS);
-            
-            // Demander le mode
+
+            socket.setSoTimeout(config.getSocketTimeoutMs());
             out.println("MODE?");
+
             String ligne = in.readLine();
             if (ligne == null || ligne.isBlank()) {
-                out.println("ERREUR:Requête manquante");
-                return;
+                out.println("ERREUR:Requête manquante"); return;
             }
 
             if (ligne.startsWith("HISTORY:")) {
-                String username = extraireUsernameHistory(ligne);
-                String token = extraireTokenClient(ligne);
-                if (!verifierTokenClient(token)) {
-                    out.println("ERREUR:Auth");
-                    return;
+                if (!verifierTokenClient(ProtocolParser.extraireTokenClient(ligne))) {
+                    out.println("ERREUR:Auth"); return;
                 }
-                if (!validerNom(username)) {
-                    out.println("ERREUR:Utilisateur invalide");
-                    return;
+                String username = ProtocolParser.extraireUsernameHistory(ligne);
+                if (!ProtocolParser.validerNom(username)) {
+                    out.println("ERREUR:Utilisateur invalide"); return;
                 }
                 envoyerHistoriqueGlobal(username, out);
                 return;
             }
             if (ligne.startsWith("LEADERBOARD")) {
-                String token = extraireTokenClient(ligne);
-                if (!verifierTokenClient(token)) {
-                    out.println("ERREUR:Auth");
-                    return;
+                if (!verifierTokenClient(ProtocolParser.extraireTokenClient(ligne))) {
+                    out.println("ERREUR:Auth"); return;
                 }
                 envoyerClassement(out);
                 return;
             }
-            if (ligne.startsWith("QUIT")) {
-                out.println("BYE");
+            if (ligne.startsWith("THEMES")) {
+                if (!verifierTokenClient(ProtocolParser.extraireTokenClient(ligne))) {
+                    out.println("ERREUR:Auth"); return;
+                }
+                envoyerThemes(out);
+                return;
+            }
+            if (ligne.startsWith("QUIT")) { out.println("BYE"); return; }
+
+            // Jouer
+            String theme = ProtocolParser.extraireTheme(ligne);
+            if (!verifierTokenClient(ProtocolParser.extraireTokenClient(ligne))) {
+                out.println("ERREUR:Auth"); return;
+            }
+            if (!ProtocolParser.validerTheme(theme)) {
+                out.println("ERREUR:Thème invalide"); return;
+            }
+
+            RegistreServeurs.InfoServeur serveur = registre.selectionnerServeur(theme);
+            if (serveur == null) {
+                out.println("ERREUR:Aucun serveur disponible pour " + theme);
+                log.warn("Aucun serveur pour theme=" + theme);
                 return;
             }
 
-            String theme = extraireTheme(ligne);
-            String token = extraireTokenClient(ligne);
-            if (!verifierTokenClient(token)) {
-                out.println("ERREUR:Auth");
-                return;
-            }
-            if (!validerTheme(theme)) {
-                out.println("ERREUR:Thème invalide");
-                return;
-            }
-            
-            // Sélectionner le meilleur serveur pour ce thème
-            RegistreServeurs.InfoServeur serveur = registre.selectionnerServeur(theme);
-            
-            if (serveur == null) {
-                out.println("ERREUR:Aucun serveur disponible pour " + theme);
-                System.out.println("✗ Aucun serveur pour theme=" + theme);
-                return;
-            }
-            
-            // Informer le client du serveur à utiliser
             out.println("REDIRECT:" + serveur.host + ":" + serveur.port);
-            
             registre.incrementerCharge(serveur.id);
-            System.out.println("→ Client redirigé vers " + serveur.id + 
-                             " (charge=" + serveur.charge + ")");
-            
-            // Le serveur esclave décrementera la charge après la partie
-            
+            log.info("Client redirigé vers " + serveur.id + " (charge=" + serveur.charge + ")");
+
         } catch (IOException e) {
-            System.err.println("Erreur gestion client: " + e.getMessage());
+            log.error("Erreur gestion client: " + e.getMessage());
         }
     }
 
-    /**
-     * Agrège les scores depuis tous les serveurs toutes les 30 secondes
-     */
+    // ───────────────────────── Agrégation des scores ─────────────────────────
+
     private void aggregerScoresPeriodiquement() {
         while (true) {
             try {
-                Thread.sleep(30000); // 30 secondes
+                Thread.sleep(config.getAggregationIntervalMs());
                 aggregerScores();
             } catch (InterruptedException e) {
                 break;
@@ -301,58 +258,45 @@ public class ServeurCentralDistribue {
         }
     }
 
-    /**
-     * Récupère et agrège les scores de tous les serveurs esclaves
-     */
     private void aggregerScores() {
-        System.out.println("\n⟳ Agrégation des scores...");
-        
+        log.aggregation("Agrégation des scores...");
         Map<String, Integer> scoresTemporaires = new HashMap<>();
-        
+
         for (RegistreServeurs.InfoServeur serveur : registre.getTousLesServeurs()) {
             if (!serveur.actif) continue;
-            
             try {
-                // Demander les scores au serveur esclave
                 Socket s = new Socket(serveur.host, serveur.port);
-                s.setSoTimeout(SOCKET_TIMEOUT_MS);
+                s.setSoTimeout(config.getSocketTimeoutMs());
                 PrintWriter out = new PrintWriter(s.getOutputStream(), true);
-                BufferedReader in = new BufferedReader(
-                    new InputStreamReader(s.getInputStream()));
-                
-                if (secretPartage != null) {
-                    out.println("GET_SCORES;token=" + secretPartage);
+                BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
+
+                if (config.getSecretPartage() != null) {
+                    out.println("GET_SCORES;token=" + config.getSecretPartage());
                 } else {
                     out.println("GET_SCORES");
                 }
-                
+
                 String ligne;
-                while ((ligne = in.readLine()) != null && !ligne.equals("END_SCORES")) {
+                while ((ligne = in.readLine()) != null && !"END_SCORES".equals(ligne)) {
                     String[] parts = ligne.split(";");
-                    String nom = parts[0];
-                    int score = Integer.parseInt(parts[1]);
-                    
-                    scoresTemporaires.put(nom, 
-                        scoresTemporaires.getOrDefault(nom, 0) + score);
+                    if (parts.length == 2) {
+                        try {
+                            scoresTemporaires.put(parts[0],
+                                scoresTemporaires.getOrDefault(parts[0], 0) + Integer.parseInt(parts[1]));
+                        } catch (NumberFormatException ignored) {}
+                    }
                 }
-                
                 s.close();
-                
             } catch (IOException e) {
-                System.err.println("Erreur agrégation " + serveur.id + ": " + e.getMessage());
+                log.error("Agrégation " + serveur.id + ": " + e.getMessage());
             }
         }
-        
-        // Fusionner avec les scores globaux
-        synchronized(scoresGlobaux) {
-            scoresTemporaires.forEach((nom, score) -> 
-                scoresGlobaux.put(nom, Math.max(scoresGlobaux.getOrDefault(nom, 0), score))
-            );
-        }
-        
-        sauvegarderScoresGlobaux();
-        afficherClassement();
+
+        scoreService.fusionnerMax(scoresTemporaires);
+        log.printClassement(scoreService.getClassement(10), 10);
     }
+
+    // ────────────────────────── Réponses spéciales ───────────────────────────
 
     private void envoyerHistoriqueGlobal(String username, PrintWriter out) {
         out.println("HISTORY_BEGIN");
@@ -360,13 +304,12 @@ public class ServeurCentralDistribue {
             if (!serveur.actif) continue;
             try {
                 Socket s = new Socket(serveur.host, serveur.port);
-                s.setSoTimeout(SOCKET_TIMEOUT_MS);
+                s.setSoTimeout(config.getSocketTimeoutMs());
                 PrintWriter outS = new PrintWriter(s.getOutputStream(), true);
-                BufferedReader inS = new BufferedReader(
-                    new InputStreamReader(s.getInputStream()));
+                BufferedReader inS = new BufferedReader(new InputStreamReader(s.getInputStream()));
 
-                if (secretPartage != null) {
-                    outS.println("GET_HISTORY;USER=" + username + ";token=" + secretPartage);
+                if (config.getSecretPartage() != null) {
+                    outS.println("GET_HISTORY;USER=" + username + ";token=" + config.getSecretPartage());
                 } else {
                     outS.println("GET_HISTORY;USER=" + username);
                 }
@@ -379,7 +322,7 @@ public class ServeurCentralDistribue {
                 }
                 s.close();
             } catch (IOException e) {
-                System.err.println("Erreur historique " + serveur.id + ": " + e.getMessage());
+                log.error("Historique " + serveur.id + ": " + e.getMessage());
             }
         }
         out.println("HISTORY_END");
@@ -387,154 +330,64 @@ public class ServeurCentralDistribue {
 
     private void envoyerClassement(PrintWriter out) {
         out.println("LEADERBOARD_BEGIN");
-        synchronized(scoresGlobaux) {
-            scoresGlobaux.entrySet().stream()
-                .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
-                .forEach(entry -> out.println(entry.getKey() + ";" + entry.getValue()));
+        for (Map.Entry<String, Integer> entry : scoreService.getClassement()) {
+            out.println(entry.getKey() + ";" + entry.getValue());
         }
         out.println("LEADERBOARD_END");
     }
 
-    /**
-     * Sauvegarde les scores globaux
-     */
-    private void sauvegarderScoresGlobaux() {
-        try (PrintWriter pw = new PrintWriter(new FileWriter("data/scores_global.txt"))) {
-            synchronized(scoresGlobaux) {
-                scoresGlobaux.forEach((nom, score) -> pw.println(nom + ";" + score));
-            }
-        } catch (IOException e) {
-            System.err.println("Erreur sauvegarde scores: " + e.getMessage());
+    private void envoyerThemes(PrintWriter out) {
+        out.println("THEMES_BEGIN");
+        for (String t : themes.getThemeNames()) {
+            out.println(t);
         }
+        out.println("THEMES_END");
     }
 
-    /**
-     * Affiche le classement global
-     */
-    private void afficherClassement() {
-        System.out.println("\n╔════════════════════════════════════════╗");
-        System.out.println("║        CLASSEMENT GLOBAL               ║");
-        System.out.println("╠════════════════════════════════════════╣");
-        
-        synchronized(scoresGlobaux) {
-            scoresGlobaux.entrySet().stream()
-                .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
-                .limit(10)
-                .forEach(entry -> {
-                    System.out.printf("║ %-25s %10d pts ║%n", 
-                        entry.getKey(), entry.getValue());
-                });
-        }
-        
-        System.out.println("╚════════════════════════════════════════╝\n");
-    }
+    // ──────────────────────────── Heartbeat ──────────────────────────────────
 
-    public static void main(String[] args) {
-        ServeurCentralDistribue serveur = new ServeurCentralDistribue();
-        serveur.demarrer();
-        
-        // Menu interactif
-        Scanner sc = new Scanner(System.in);
-        while (true) {
-            System.out.println("\n[1] État des serveurs  [2] Classement  [3] Quitter");
-            String choix = sc.nextLine();
-            
-            switch (choix) {
-                case "1":
-                    serveur.registre.afficherEtat();
-                    break;
-                case "2":
-                    serveur.afficherClassement();
-                    break;
-                case "3":
-                    System.exit(0);
-                    break;
-            }
-        }
-    }
-
-    /**
-     * Surveille les heartbeats et désactive les serveurs silencieux
-     */
     private void surveillerHeartbeats() {
         while (true) {
             try {
-                Thread.sleep(5000);
-                registre.desactiverServeursSilencieux(HEARTBEAT_TIMEOUT_MS);
+                Thread.sleep(config.getHeartbeatCheckIntervalMs());
+                registre.desactiverServeursSilencieux(config.getHeartbeatTimeoutMs());
             } catch (InterruptedException e) {
                 break;
             }
         }
     }
 
-    private String chargerEnv(String key) {
-        String value = System.getenv(key);
-        if (value == null || value.isBlank()) return null;
-        return value.trim();
-    }
+    // ──────────────────────────── Sécurité ───────────────────────────────────
 
     private boolean verifierSecret(String token) {
-        if (secretPartage == null) return true;
-        return token != null && token.equals(secretPartage);
+        if (config.getSecretPartage() == null) return true;
+        return token != null && token.equals(config.getSecretPartage());
     }
 
     private boolean verifierTokenClient(String token) {
-        if (tokenClient == null) return true;
-        return token != null && token.equals(tokenClient);
+        if (config.getTokenClient() == null) return true;
+        return token != null && token.equals(config.getTokenClient());
     }
 
-    private String extraireTheme(String ligne) {
-        if (ligne.startsWith("THEME:")) {
-            String payload = ligne.substring(6);
-            String[] parts = payload.split(";TOKEN:", 2);
-            return parts[0].trim();
+    // ──────────────────────────── Main ────────────────────────────────────────
+
+    public static void main(String[] args) {
+        ServeurCentralDistribue serveur = new ServeurCentralDistribue();
+        serveur.demarrer();
+
+        Scanner sc = new Scanner(System.in);
+        while (true) {
+            System.out.println("\n[1] État des serveurs  [2] Classement  [3] Statistiques  [4] Quitter");
+            String choix = sc.nextLine();
+            switch (choix) {
+                case "1": serveur.registre.afficherEtat(); break;
+                case "2": serveur.log.printClassement(serveur.scoreService.getClassement(10), 10); break;
+                case "3":
+                    System.out.println("Serveurs enregistrés: " + serveur.registre.getTousLesServeurs().size());
+                    System.out.println("Joueurs scorés: " + serveur.scoreService.getTousLesScores().size());
+                    break;
+                case "4": System.exit(0); break;
+            }
         }
-        if (ligne.startsWith("PLAY:")) {
-            String payload = ligne.substring(5);
-            String[] parts = payload.split(";TOKEN:", 2);
-            return parts[0].trim();
-        }
-        return ligne.trim();
-    }
-
-    private String extraireUsernameHistory(String ligne) {
-        if (!ligne.startsWith("HISTORY:")) return null;
-        String payload = ligne.substring(8);
-        String[] parts = payload.split(";TOKEN:", 2);
-        return parts[0].trim();
-    }
-
-    private String extraireTokenClient(String ligne) {
-        int idx = ligne.indexOf(";TOKEN:");
-        if (idx == -1) return null;
-        return ligne.substring(idx + 7).trim();
-    }
-
-    private boolean validerTheme(String theme) {
-        if (theme == null) return false;
-        String t = theme.trim();
-        return t.length() >= 1 && t.length() <= 50 && t.matches("[\\p{L}0-9 _\\-]+");
-    }
-
-    private boolean validerNom(String nom) {
-        if (nom == null) return false;
-        String n = nom.trim();
-        return n.length() >= 1 && n.length() <= 40 && n.matches("[\\p{L}0-9 _\\-]+");
-    }
-
-    private boolean validerId(String id) {
-        if (id == null) return false;
-        String v = id.trim();
-        return v.length() >= 1 && v.length() <= 20 && v.matches("[A-Za-z0-9_\\-]+");
-    }
-
-    private boolean validerHost(String host) {
-        if (host == null) return false;
-        String h = host.trim();
-        return h.length() >= 1 && h.length() <= 100;
-    }
-
-    private boolean validerPort(int port) {
-        return port > 0 && port <= 65535;
     }
 }

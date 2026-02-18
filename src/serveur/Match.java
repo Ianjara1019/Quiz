@@ -35,6 +35,11 @@ public class Match {
         this.history = history;
     }
 
+    /** Bonus de vitesse maximal (en % des points de base). */
+    private static final double SPEED_BONUS_MAX = 0.5;
+    /** Durée maximale par question pour le calcul du bonus (ms). */
+    private static final long QUESTION_TIMEOUT_MS = 15_000;
+
     public void jouer() {
         String matchId = "M" + System.currentTimeMillis() + "-" + new Random().nextInt(1000);
         broadcast("MATCH_START:ID=" + matchId + ";THEME=" + theme + ";PLAYERS=" + joueursListe()
@@ -44,27 +49,43 @@ public class Match {
             long roundDeadline = System.currentTimeMillis() + roundTimerMs;
             broadcast("ROUND_START:" + manche + "/" + manches + ";TIMER_MS=" + roundTimerMs);
             List<Question> qList = selectionQuestions();
+
             for (Question q : qList) {
                 long remaining = roundDeadline - System.currentTimeMillis();
                 if (remaining <= 0) break;
-                broadcast("QUESTION:" + q.getTexte());
+
+                int basePoints = q.getPointsPonderes();
+                String diffLabel = difficultyLabel(q.getDifficulty());
+                broadcast("QUESTION:[" + diffLabel + " +" + basePoints + "pts] " + q.getTexte());
+
                 for (PlayerSession p : joueurs) {
                     try {
                         long left = roundDeadline - System.currentTimeMillis();
                         if (left <= 0) break;
-                        int timeout = (int) Math.min(Integer.MAX_VALUE, left);
+                        int timeout = (int) Math.min(QUESTION_TIMEOUT_MS, left);
+
+                        long t0 = System.currentTimeMillis();
                         String rep = p.readLineWithTimeout(timeout);
+                        long elapsed = System.currentTimeMillis() - t0;
+
                         if (rep != null && q.estCorrecte(rep)) {
-                            p.addScore(10);
+                            int earned = calculerPoints(basePoints, elapsed, timeout);
+                            boolean exact = q.estCorrecteExacte(rep);
+                            p.addScore(earned);
+                            p.send("CORRECT:" + (exact ? "EXACT" : "FUZZY")
+                                + ";PTS=" + earned + ";ELAPSED=" + elapsed + "ms");
+                        } else {
+                            p.send("WRONG:ANSWER=" + q.getReponse());
                         }
                     } catch (Exception e) {
-                        // Pas de reponse ou timeout
+                        // Pas de réponse ou timeout
                     }
                 }
             }
             broadcast("ROUND_END:" + manche + "/" + manches);
         }
 
+        // --- Classement final ---
         List<PlayerSession> classement = new ArrayList<>(joueurs);
         classement.sort(Comparator.comparingInt(PlayerSession::getScore).reversed());
 
@@ -85,6 +106,27 @@ public class Match {
             scoreRecorder.accept(p.getUsername(), p.getScore());
             p.closeQuiet();
             p.terminer();
+        }
+    }
+
+    /**
+     * Calcule les points gagnés : base pondéré par difficulté + bonus de vitesse.
+     * Plus le joueur répond vite, plus le bonus est élevé (jusqu'à +50%).
+     */
+    private int calculerPoints(int basePoints, long elapsedMs, long maxMs) {
+        if (maxMs <= 0) return basePoints;
+        double ratio = 1.0 - ((double) elapsedMs / maxMs);
+        ratio = Math.max(0.0, Math.min(1.0, ratio));
+        double bonus = basePoints * SPEED_BONUS_MAX * ratio;
+        return basePoints + (int) Math.round(bonus);
+    }
+
+    private static String difficultyLabel(int d) {
+        switch (d) {
+            case 1: return "★";
+            case 2: return "★★";
+            case 3: return "★★★";
+            default: return "★";
         }
     }
 

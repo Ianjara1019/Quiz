@@ -43,8 +43,10 @@ public class Themes {
                 String question = extraireChamp(obj, "question");
                 String answer = extraireChamp(obj, "answer");
                 if (theme == null || question == null || answer == null) continue;
+                int difficulty = extraireChampInt(obj, "difficulty", 1);
+                int points = extraireChampInt(obj, "points", 10);
                 themes.putIfAbsent(theme, new ArrayList<>());
-                themes.get(theme).add(new Question(question, answer));
+                themes.get(theme).add(new Question(question, answer, difficulty, points));
             }
         } catch (IOException e) {
             System.out.println("Erreur chargement thèmes JSON");
@@ -65,7 +67,24 @@ public class Themes {
                 .replace("\\\\", "\\");
     }
 
+    private int extraireChampInt(String obj, String key, int defaultValue) {
+        Pattern p = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(\\d+)");
+        Matcher m = p.matcher(obj);
+        if (!m.find()) return defaultValue;
+        try {
+            return Integer.parseInt(m.group(1));
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
     public List<Question> getQuestions(String theme) {
         return themes.getOrDefault(theme, new ArrayList<>());
+    }
+
+    public List<String> getThemeNames() {
+        List<String> noms = new ArrayList<>(themes.keySet());
+        Collections.sort(noms);
+        return noms;
     }
 }

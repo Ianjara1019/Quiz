@@ -1,11 +1,11 @@
 # Quiz TCP Distribué
 
-Un système de quiz multi-joueurs distribué en Java avec architecture maître-esclave, partitionnement des scores et équilibrage de charge.
+Un système de quiz multi-joueurs distribué en Java avec architecture **MVC**, maître-esclave, partitionnement des scores et équilibrage de charge.
 
 ## Table des Matières
 
 1. [Présentation du Projet](#présentation-du-projet)
-2. [Architecture](#architecture)
+2. [Architecture MVC](#architecture-mvc)
 3. [Installation et Compilation](#installation-et-compilation)
 4. [Lancement du Système](#lancement-du-système)
 5. [Guide de Test](#guide-de-test)
@@ -27,18 +27,73 @@ Ce projet implémente un système de quiz distribué permettant à plusieurs jou
 
 ### Caractéristiques Principales
 
+- **Architecture MVC** sur le client et le serveur (Model / View / Controller + Service)
 - Architecture maître-esclave avec communication TCP
 - Partitionnement des scores par hachage du nom du joueur
 - Équilibrage de charge entre serveurs du même thème
-- Support multi-joueurs avec parties privées et mode tournoi
-- Authentification utilisateurs avec hash sécurisé
+- **Mode Solo** : partie individuelle instantanée avec statistiques détaillées
+- **Mode Multi-joueurs** : parties privées avec matchmaking automatique
+- **Scoring intelligent** : points pondérés par difficulté + bonus de vitesse
+- **Correspondance floue** : tolérance aux fautes de frappe (Levenshtein)
+- Authentification utilisateurs avec hash SHA-256 + salt
 - Historique des scores persistant (fichiers texte)
+- Configuration flexible via variables d'environnement (Builder pattern)
 
 ---
 
-## Architecture
+## Architecture MVC
 
-### Vue Globale
+### Structure des Packages
+
+```
+src/
+├── client/
+│   ├── ClientDistribue.java         # Point d'entrée (instancie MVC)
+│   ├── model/
+│   │   ├── ClientConfig.java        # Configuration (host, port, token, timeout)
+│   │   └── AuthRequest.java         # Données d'authentification
+│   ├── view/
+│   │   └── ConsoleView.java         # Toute l'interface console (menus, affichage)
+│   └── controller/
+│       └── ClientController.java    # Logique client (connexion, redirection, jeu)
+│
+├── data/                            # Modèles de données partagés
+│   ├── Question.java                # Question avec difficulté, points, Levenshtein
+│   ├── Themes.java                  # Chargement thèmes (JSON/TXT)
+│   ├── AuthManager.java             # Authentification SHA-256 + salt
+│   ├── MatchHistory.java            # Historique des matchs
+│   ├── Scores.java                  # Wrapper de score
+│   ├── Joueur.java                  # Modèle joueur
+│   └── Partie.java                  # État d'une partie
+│
+└── serveur/
+    ├── ServeurCentralDistribue.java  # Contrôleur serveur maître
+    ├── ServeurThemeDistribue.java    # Contrôleur serveur esclave
+    ├── Match.java                    # Logique de match multi-joueurs
+    ├── MatchSolo.java                # Logique de partie solo
+    ├── PlayerSession.java            # Session TCP d'un joueur
+    ├── RegistreServeurs.java         # Registre + load balancing
+    ├── model/
+    │   ├── ServerConfig.java         # Config maître (Builder, env vars)
+    │   └── SlaveConfig.java          # Config esclave (Builder, CLI + env vars)
+    ├── service/
+    │   ├── ScoreService.java         # Gestion scores thread-safe + persistance
+    │   ├── MatchmakingService.java   # File d'attente + création de matchs
+    │   └── ProtocolParser.java       # Validation/extraction du protocole TCP
+    └── view/
+        └── ConsoleLogger.java        # Logging centralisé avec timestamps
+```
+
+### Séparation MVC
+
+| Couche | Client | Serveur |
+|--------|--------|---------|
+| **Model** | `ClientConfig`, `AuthRequest` | `ServerConfig`, `SlaveConfig` + tout `data/` |
+| **View** | `ConsoleView` (menus, affichage) | `ConsoleLogger` (logs, bannières) |
+| **Controller** | `ClientController` (flux réseau) | `ServeurCentral`, `ServeurTheme`, `Match` |
+| **Service** | — | `ScoreService`, `MatchmakingService`, `ProtocolParser` |
+
+### Vue Globale Réseau
 
 ```
                     ┌───────────────────────────────────────┐
@@ -173,18 +228,25 @@ Ce script:
 
 ```
 /
-├── src/                    # Code source Java
-│   ├── client/           # Client TCP
-│   ├── data/             # Classes de données
-│   └── serveur/          # Serveurs (maître + esclaves)
-├── bin/                   # Fichiers .class compilés
-├── data/                  # Données persistantes
-│   ├── themes.txt        # Questions (format txt)
-│   ├── themes.json       # Questions (format JSON)
-│   ├── users.txt        # Utilisateurs
-│   ├── scores_*.txt     # Scores partitionnés
-│   └── registre_serveurs.txt  # État des serveurs
-└── *.sh                  # Scripts de gestion
+├── src/                          # Code source Java (MVC)
+│   ├── client/                  # Client TCP
+│   │   ├── model/              # Config, données auth
+│   │   ├── view/               # Interface console
+│   │   └── controller/         # Logique de jeu
+│   ├── data/                    # Modèles partagés
+│   └── serveur/                 # Serveurs (maître + esclaves)
+│       ├── model/              # Configurations (Builder pattern)
+│       ├── service/            # Services métier
+│       └── view/               # Logging serveur
+├── bin/                          # Fichiers .class compilés
+├── data/                         # Données persistantes
+│   ├── themes.json              # Questions (format JSON avec difficulté/points)
+│   ├── themes.txt               # Questions (format TXT basique)
+│   ├── users.txt                # Utilisateurs (hash SHA-256 + salt)
+│   ├── scores_*.txt             # Scores partitionnés
+│   ├── scores_matches.txt       # Historique des matchs
+│   └── registre_serveurs.txt    # État des serveurs
+└── *.sh                          # Scripts de gestion
 ```
 
 ---
@@ -306,29 +368,61 @@ cat data/scores_partition_67-99.txt
 
 ## Fonctionnalités Détaillées
 
-### Mode Multi-Joueurs (Manches)
+### Mode Solo
 
-- Les joueurs s'authentifient puis choisissent "Jouer"
+1. Dans le menu principal, choisir **"Jouer"**
+2. Sélectionner **"1. Solo"** dans le choix de mode
+3. La partie démarre **immédiatement** sans attendre d'autres joueurs
+4. 10 questions sont posées une par une (15 secondes max par question)
+5. Après chaque réponse, retour immédiat : correct/incorrect + points gagnés + combo
+6. En fin de partie, un bilan complet est affiché :
+   - Score total
+   - Bonnes réponses / total
+   - % de réussite
+   - Temps moyen par question
+   - Meilleure série (combo)
+   - Mention (EXCELLENT ≥90%, BIEN ≥70%, PASSABLE ≥50%, À AMÉLIORER)
+
+### Mode Multi-Joueurs
+
+- Les joueurs s'authentifient puis choisissent **"2. Multi"** dans le choix de mode
 - Le serveur regroupe automatiquement 2 à 4 joueurs pour lancer une partie
 - Chaque partie contient plusieurs questions et un classement final
 
-### Parties Privées
+### Parties Privées (Mode Multi uniquement)
 
-1. Après avoir choisi "Jouer", répondre "o" à "Partie privée ?"
+1. Après avoir choisi **"2. Multi"**, répondre "o" à "Partie privée ?"
 2. Entrer un code de partie (ex: `SALON123`)
 3. Seuls les joueurs avec le même code sont regroupés
 
-### Mode Tournoi
+### Scoring Intelligent
 
-1. Après "Jouer", répondre "oui" à "Mode tournoi ?"
-2. La partie est jouée en plusieurs manches
-3. Les scores sont additionnés sur l'ensemble des manches
+Les points sont calculés de manière dynamique :
+
+- **Difficulté** : Chaque question a un niveau (★ facile, ★★ moyen, ★★★ difficile)
+  - Facile : ×1 (10 pts de base)
+  - Moyen : ×1.5 (15 pts)
+  - Difficile : ×2 (20 pts)
+- **Bonus de vitesse** : Jusqu'à +50% des points si le joueur répond rapidement
+  - Plus la réponse est rapide, plus le bonus est élevé
+- **Feedback immédiat** : Le client reçoit `CORRECT:EXACT` ou `CORRECT:FUZZY` avec les points gagnés
+
+### Correspondance Floue (Levenshtein)
+
+Les réponses sont tolérantes aux fautes :
+- **Normalisation** : accents supprimés, casse ignorée, espaces normalisés
+- **Distance de Levenshtein** : si la distance relative est ≤ 25%, la réponse est acceptée
+- Exemple : `"Napoloen"` est accepté pour `"Napoléon"`
+
+### Lister les Thèmes
+
+Le client peut voir la liste des thèmes disponibles avant de jouer (menu option 4).
 
 ### Authentification
 
 - **Register**: Créer un nouveau compte
 - **Login**: Se connecter avec un compte existant
-- Les mots de passe sont hashés avec salt dans `data/users.txt`
+- Les mots de passe sont hashés avec SHA-256 + salt dans `data/users.txt`
 
 ### Historique des Scores
 
@@ -340,17 +434,43 @@ cat data/scores_partition_67-99.txt
 
 ## Configuration
 
-### Variables d'Environnement
+### Variables d'Environnement — Serveur Maître (`ServerConfig`)
 
 | Variable | Description | Défaut |
 |----------|-------------|--------|
-| `QUIZ_SERVER_HOST` | IP publique annoncée par les serveurs | Auto-détecté |
-| `QUIZ_SHARED_SECRET` | Secret partagé pour auth entre serveurs | Non défini |
-| `QUIZ_CLIENT_TOKEN` | Token optionnel exigé par le serveur maître | Non défini |
-| `QUIZ_PARTITION_MAX` | Modulo de partitionnement des scores | 100 |
-| `QUIZ_TOURNAMENT_ROUNDS` | Nombre de manches en mode tournoi | 3 |
-| `QUIZ_ROUND_TIMER_MS` | Timer par manche (millisecondes) | 30000 |
-| `QUIZ_THEMES_FILE` | Chemin du fichier thèmes | data/themes.json |
+| `QUIZ_PORT_CLIENTS` | Port d'écoute clients | `6000` |
+| `QUIZ_PORT_COORDINATION` | Port coordination esclaves | `6001` |
+| `QUIZ_SERVER_HOST` | IP publique annoncée | Auto-détecté |
+| `QUIZ_SHARED_SECRET` | Secret partagé entre serveurs | Non défini |
+| `QUIZ_CLIENT_TOKEN` | Token optionnel exigé des clients | Non défini |
+| `QUIZ_SOCKET_TIMEOUT_MS` | Timeout socket TCP (ms) | `120000` |
+| `QUIZ_HEARTBEAT_TIMEOUT_MS` | Délai heartbeat avant déconnexion | `30000` |
+| `QUIZ_HEARTBEAT_CHECK_MS` | Intervalle vérification heartbeat | `10000` |
+| `QUIZ_AGGREGATION_INTERVAL_MS` | Intervalle agrégation scores | `15000` |
+| `QUIZ_PARTITION_MAX` | Modulo partitionnement scores | `100` |
+| `QUIZ_THEMES_FILE` | Chemin du fichier thèmes | `data/themes.json` |
+| `QUIZ_SCORES_GLOBAL_FILE` | Fichier scores global | `data/scores_global.txt` |
+
+### Variables d'Environnement — Serveur Esclave (`SlaveConfig`)
+
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `QUIZ_MASTER_HOST` | Hôte du serveur maître | `localhost` |
+| `QUIZ_MASTER_COORD_PORT` | Port coordination du maître | `6001` |
+| `QUIZ_MIN_PLAYERS` | Joueurs minimum pour lancer un match | `2` |
+| `QUIZ_MAX_PLAYERS` | Joueurs maximum par match | `4` |
+| `QUIZ_NB_QUESTIONS` | Questions par manche (multi) | `5` |
+| `QUIZ_SOLO_NB_QUESTIONS` | Questions par partie solo | `10` |
+| `QUIZ_ROUND_TIMER_MS` | Timer par manche (ms) | `45000` |
+| `QUIZ_THEMES_FILE` | Chemin du fichier thèmes | `data/themes.json` |
+
+### Variables d'Environnement — Client (`ClientConfig`)
+
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `QUIZ_SERVER_HOST` | Hôte du serveur maître | `localhost` |
+| `QUIZ_CLIENT_TOKEN` | Token d'accès | Non défini |
+| `QUIZ_SOCKET_TIMEOUT_MS` | Timeout socket (ms) | `120000` |
 
 ### Exemple de Configuration
 
@@ -375,15 +495,22 @@ Maths;Combien font 2+2?;4
 Histoire;Annee de la Revolution Francaise?;1789
 ```
 
-**themes.json:**
+**themes.json:** (avec difficulté et points)
 ```json
 [
   {
     "theme": "Maths",
-    "question": "Question ici",
-    "answer": "Reponse",
-    "difficulty": 2,
+    "question": "Combien font 2+2?",
+    "answer": "4",
+    "difficulty": 1,
     "points": 10
+  },
+  {
+    "theme": "Histoire",
+    "question": "Date de la Révolution Française?",
+    "answer": "1789",
+    "difficulty": 2,
+    "points": 15
   }
 ]
 ```
@@ -429,8 +556,9 @@ rm data/registre_serveurs.txt
 Dans le terminal du serveur maître:
 ```
 [1] État des serveurs    → Affiche tous les serveurs enregistrés
-[2] Classement            → Affiche le top 10 des joueurs
-[3] Quitter               → Arrête le serveur
+[2] Classement           → Affiche le top 10 des joueurs
+[3] Statistiques         → Affiche les stats détaillées
+[4] Quitter              → Arrête le serveur
 ```
 
 ---

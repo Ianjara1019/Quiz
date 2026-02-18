@@ -9,7 +9,6 @@ import java.util.concurrent.CountDownLatch;
 public class PlayerSession {
     private final String username;
     private final String roomCode;
-    private final boolean tournoi;
     private final Socket socket;
     private final BufferedReader in;
     private final PrintWriter out;
@@ -17,10 +16,9 @@ public class PlayerSession {
     private volatile boolean closed = false;
     private int score = 0;
 
-    public PlayerSession(String username, String roomCode, boolean tournoi, Socket socket, BufferedReader in, PrintWriter out) {
+    public PlayerSession(String username, String roomCode, Socket socket, BufferedReader in, PrintWriter out) {
         this.username = username;
         this.roomCode = roomCode;
-        this.tournoi = tournoi;
         this.socket = socket;
         this.in = in;
         this.out = out;
@@ -32,10 +30,6 @@ public class PlayerSession {
 
     public String getRoomCode() {
         return roomCode;
-    }
-
-    public boolean isTournoi() {
-        return tournoi;
     }
 
     public int getScore() {
