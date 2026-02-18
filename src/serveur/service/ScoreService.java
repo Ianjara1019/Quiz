@@ -1,47 +1,50 @@
 package serveur.service;
 
-import java.io.*;
+import data.SimpleJson;
+import data.StorageManager;
+
 import java.util.*;
 
 /**
  * Service de gestion des scores.
- * Encapsule la lecture, écriture et agrégation des scores locaux et globaux.
+ * Encapsule la lecture, écriture et agrégation des scores via StorageManager.
  */
 public class ScoreService {
     private final Map<String, Integer> scores = new HashMap<>();
-    private final String fichierScores;
+    private final StorageManager storage;
+    private final String section;       // "scores_global" ou clé de partition
+    private final String partitionKey;  // null pour global, ex: "partition_0-33" pour partition
 
-    public ScoreService(String fichierScores) {
-        this.fichierScores = fichierScores;
+    /** Constructeur pour scores globaux. */
+    public ScoreService(StorageManager storage) {
+        this(storage, "scores_global", null);
+    }
+
+    /** Constructeur pour une partition de scores. */
+    public ScoreService(StorageManager storage, String partitionKey) {
+        this(storage, "scores_partitions", partitionKey);
+    }
+
+    private ScoreService(StorageManager storage, String section, String partitionKey) {
+        this.storage = storage;
+        this.section = section;
+        this.partitionKey = partitionKey;
         charger();
     }
 
-    /**
-     * Ajoute des points au score d'un joueur.
-     */
     public synchronized void ajouterScore(String nom, int points) {
         scores.put(nom, scores.getOrDefault(nom, 0) + points);
         sauvegarder();
     }
 
-    /**
-     * Retourne le score d'un joueur donné.
-     */
     public synchronized int getScore(String nom) {
         return scores.getOrDefault(nom, 0);
     }
 
-    /**
-     * Retourne une copie thread-safe de tous les scores.
-     */
     public synchronized Map<String, Integer> getTousLesScores() {
         return new HashMap<>(scores);
     }
 
-    /**
-     * Fusionne les scores d'une source externe (agrégation).
-     * Garde le maximum entre le score existant et le score reçu.
-     */
     public synchronized void fusionnerMax(Map<String, Integer> source) {
         source.forEach((nom, score) ->
             scores.put(nom, Math.max(scores.getOrDefault(nom, 0), score))
@@ -49,9 +52,6 @@ public class ScoreService {
         sauvegarder();
     }
 
-    /**
-     * Retourne le classement trié (meilleur en premier), limité à N entrées.
-     */
     public synchronized List<Map.Entry<String, Integer>> getClassement(int limit) {
         List<Map.Entry<String, Integer>> list = new ArrayList<>(scores.entrySet());
         list.sort((a, b) -> b.getValue().compareTo(a.getValue()));
@@ -61,41 +61,36 @@ public class ScoreService {
         return list;
     }
 
-    /**
-     * Retourne le classement complet trié.
-     */
     public synchronized List<Map.Entry<String, Integer>> getClassement() {
         return getClassement(0);
     }
 
     // --- Persistance ---
 
+    @SuppressWarnings("unchecked")
     private void charger() {
-        File f = new File(fichierScores);
-        if (!f.exists()) return;
-
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
-            String ligne;
-            while ((ligne = br.readLine()) != null) {
-                String[] parts = ligne.split(";");
-                if (parts.length == 2) {
-                    try {
-                        scores.put(parts[0], Integer.parseInt(parts[1]));
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-            }
-            System.out.println("✓ " + scores.size() + " scores chargés depuis " + fichierScores);
-        } catch (IOException e) {
-            System.err.println("Erreur chargement scores: " + e.getMessage());
+        Map<String, Object> map;
+        if (partitionKey == null) {
+            map = storage.getMap(section);
+        } else {
+            Map<String, Object> partitions = storage.getMap("scores_partitions");
+            Object pObj = partitions.get(partitionKey);
+            map = (pObj instanceof Map) ? (Map<String, Object>) pObj : new LinkedHashMap<>();
         }
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            scores.put(e.getKey(), SimpleJson.toInt(e.getValue(), 0));
+        }
+        System.out.println("✓ " + scores.size() + " scores chargés"
+            + (partitionKey != null ? " (partition " + partitionKey + ")" : " (global)"));
     }
 
     private void sauvegarder() {
-        try (PrintWriter pw = new PrintWriter(new FileWriter(fichierScores))) {
-            scores.forEach((nom, score) -> pw.println(nom + ";" + score));
-        } catch (IOException e) {
-            System.err.println("Erreur sauvegarde scores: " + e.getMessage());
+        Map<String, Object> map = new LinkedHashMap<>();
+        scores.forEach((nom, score) -> map.put(nom, score));
+        if (partitionKey == null) {
+            storage.sauvegarder(section, map);
+        } else {
+            storage.sauvegarderPartition(partitionKey, map);
         }
     }
 }

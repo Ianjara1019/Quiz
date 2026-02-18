@@ -1,8 +1,5 @@
 package data;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -16,11 +13,11 @@ public class AuthManager {
     private static final int SALT_LENGTH_BYTES = 16;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-    private final Path usersPath;
+    private final StorageManager storage;
     private final Object verrou = new Object();
 
-    public AuthManager(String chemin) {
-        this.usersPath = Path.of(chemin);
+    public AuthManager(StorageManager storage) {
+        this.storage = storage;
     }
 
     public static class Result {
@@ -130,38 +127,28 @@ public class AuthManager {
 
     private Map<String, UserRecord> chargerUsers() {
         Map<String, UserRecord> users = new HashMap<>();
-        if (!Files.exists(usersPath)) {
-            return users;
-        }
-
-        try (BufferedReader br = Files.newBufferedReader(usersPath, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                if (line.isBlank()) {
-                    continue;
-                }
-                String[] parts = line.split(";");
-                if (parts.length == 3) {
-                    users.put(parts[0], new UserRecord(parts[1], parts[2]));
-                }
+        List<Map<String, Object>> userList = storage.getList("users");
+        for (Map<String, Object> u : userList) {
+            String username = SimpleJson.toStr(u.get("username"), null);
+            String salt = SimpleJson.toStr(u.get("salt"), null);
+            String hash = SimpleJson.toStr(u.get("hash"), null);
+            if (username != null && salt != null && hash != null) {
+                users.put(username, new UserRecord(salt, hash));
             }
-        } catch (IOException e) {
-            System.err.println("Erreur chargement users: " + e.getMessage());
         }
-
         return users;
     }
 
     private void sauvegarderUsers(Map<String, UserRecord> users) {
-        try (BufferedWriter writer = Files.newBufferedWriter(usersPath, StandardCharsets.UTF_8)) {
-            for (Map.Entry<String, UserRecord> entry : users.entrySet()) {
-                UserRecord userRecord = entry.getValue();
-                writer.write(entry.getKey() + ";" + userRecord.saltHex + ";" + userRecord.hashHex);
-                writer.newLine();
-            }
-        } catch (IOException e) {
-            System.err.println("Erreur sauvegarde users: " + e.getMessage());
+        List<Map<String, Object>> userList = new ArrayList<>();
+        for (Map.Entry<String, UserRecord> entry : users.entrySet()) {
+            Map<String, Object> u = new LinkedHashMap<>();
+            u.put("username", entry.getKey());
+            u.put("salt", entry.getValue().saltHex);
+            u.put("hash", entry.getValue().hashHex);
+            userList.add(u);
         }
+        storage.sauvegarder("users", userList);
     }
 
     private Credentials parseCredentials(String payload) {

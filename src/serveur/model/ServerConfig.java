@@ -20,9 +20,7 @@ public class ServerConfig {
     private final String tokenClient;
 
     // --- Fichiers ---
-    private final String fichierRegistre;
-    private final String fichierThemes;
-    private final String fichierScoresGlobal;
+    private final String fichierStorage;
 
     private ServerConfig(Builder b) {
         this.portClients = b.portClients;
@@ -33,9 +31,7 @@ public class ServerConfig {
         this.heartbeatCheckIntervalMs = b.heartbeatCheckIntervalMs;
         this.secretPartage = b.secretPartage;
         this.tokenClient = b.tokenClient;
-        this.fichierRegistre = b.fichierRegistre;
-        this.fichierThemes = b.fichierThemes;
-        this.fichierScoresGlobal = b.fichierScoresGlobal;
+        this.fichierStorage = b.fichierStorage;
     }
 
     // --- Getters ---
@@ -47,9 +43,7 @@ public class ServerConfig {
     public long getHeartbeatCheckIntervalMs() { return heartbeatCheckIntervalMs; }
     public String getSecretPartage()         { return secretPartage; }
     public String getTokenClient()           { return tokenClient; }
-    public String getFichierRegistre()       { return fichierRegistre; }
-    public String getFichierThemes()         { return fichierThemes; }
-    public String getFichierScoresGlobal()   { return fichierScoresGlobal; }
+    public String getFichierStorage()       { return fichierStorage; }
 
     /**
      * Charge la configuration depuis les variables d'environnement + valeurs par défaut.
@@ -64,9 +58,7 @@ public class ServerConfig {
             .heartbeatCheckIntervalMs(envLong("QUIZ_HEARTBEAT_CHECK_MS", 5000))
             .secretPartage(envStr("QUIZ_SHARED_SECRET"))
             .tokenClient(envStr("QUIZ_CLIENT_TOKEN"))
-            .fichierRegistre(envStr("QUIZ_REGISTRE_FILE", "data/registre_serveurs.txt"))
-            .fichierThemes(resolveThemesFile())
-            .fichierScoresGlobal(envStr("QUIZ_SCORES_GLOBAL_FILE", "data/scores_global.txt"))
+            .fichierStorage(envStr("QUIZ_STORAGE_FILE", "data/storage.json"))
             .build();
     }
 
@@ -80,9 +72,7 @@ public class ServerConfig {
         private long heartbeatCheckIntervalMs = 5000;
         private String secretPartage;
         private String tokenClient;
-        private String fichierRegistre = "data/registre_serveurs.txt";
-        private String fichierThemes = "data/themes.json";
-        private String fichierScoresGlobal = "data/scores_global.txt";
+        private String fichierStorage = "data/storage.json";
 
         public Builder portClients(int v)              { this.portClients = v; return this; }
         public Builder portCoordination(int v)         { this.portCoordination = v; return this; }
@@ -92,9 +82,7 @@ public class ServerConfig {
         public Builder heartbeatCheckIntervalMs(long v) { this.heartbeatCheckIntervalMs = v; return this; }
         public Builder secretPartage(String v)         { this.secretPartage = v; return this; }
         public Builder tokenClient(String v)           { this.tokenClient = v; return this; }
-        public Builder fichierRegistre(String v)       { this.fichierRegistre = v; return this; }
-        public Builder fichierThemes(String v)         { this.fichierThemes = v; return this; }
-        public Builder fichierScoresGlobal(String v)   { this.fichierScoresGlobal = v; return this; }
+        public Builder fichierStorage(String v)       { this.fichierStorage = v; return this; }
 
         public ServerConfig build() { return new ServerConfig(this); }
     }
@@ -124,11 +112,4 @@ public class ServerConfig {
         catch (NumberFormatException e) { return def; }
     }
 
-    private static String resolveThemesFile() {
-        String env = envStr("QUIZ_THEMES_FILE");
-        if (env != null) return env;
-        java.io.File json = new java.io.File("data/themes.json");
-        if (json.exists()) return "data/themes.json";
-        return "data/themes.txt";
-    }
 }

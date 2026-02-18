@@ -1,14 +1,21 @@
 package data;
 
-import java.io.*;
 import java.util.*;
 
 public class Scores {
     private Map<String, Integer> scores = new HashMap<>();
-    private String fichier;
+    private final StorageManager storage;
 
-    public Scores(String fichier) {
-        this.fichier = fichier;
+    public Scores(StorageManager storage) {
+        this.storage = storage;
+        charger();
+    }
+
+    private void charger() {
+        Map<String, Object> map = storage.getMap("scores_global");
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            scores.put(e.getKey(), SimpleJson.toInt(e.getValue(), 0));
+        }
     }
 
     public synchronized void ajouterScore(String nom, int score) {
@@ -16,10 +23,8 @@ public class Scores {
     }
 
     public synchronized void sauvegarder() {
-        try (PrintWriter pw = new PrintWriter(new FileWriter(fichier))) {
-            scores.forEach((k, v) -> pw.println(k + ";" + v));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        scores.forEach((k, v) -> map.put(k, v));
+        storage.sauvegarder("scores_global", map);
     }
 }

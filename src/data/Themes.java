@@ -1,80 +1,42 @@
 package data;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class Themes {
     private Map<String, List<Question>> themes = new HashMap<>();
 
-    public Themes(String fichier) {
-        charger(fichier);
+    public Themes(StorageManager storage) {
+        charger(storage);
     }
 
-    private void charger(String fichier) {
-        if (fichier != null && fichier.endsWith(".json")) {
-            chargerJson(fichier);
-            return;
+    @SuppressWarnings("unchecked")
+    private void charger(StorageManager storage) {
+        // Charger les thèmes JSON (format riche : difficulty + points)
+        List<Map<String, Object>> jList = storage.getList("themes_json");
+        for (Map<String, Object> q : jList) {
+            String t     = SimpleJson.toStr(q.get("theme"), null);
+            String quest = SimpleJson.toStr(q.get("question"), null);
+            String ans   = SimpleJson.toStr(q.get("answer"), null);
+            if (t == null || quest == null || ans == null) continue;
+            int diff = SimpleJson.toInt(q.get("difficulty"), 1);
+            int pts  = SimpleJson.toInt(q.get("points"), 10);
+            themes.computeIfAbsent(t, k -> new ArrayList<>())
+                  .add(new Question(quest, ans, diff, pts));
         }
-        try (BufferedReader br = new BufferedReader(new FileReader(fichier))) {
-            String ligne;
-            while ((ligne = br.readLine()) != null) {
-                String[] p = ligne.split(";");
-                if (p.length < 3) continue;
-                themes.putIfAbsent(p[0], new ArrayList<>());
-                themes.get(p[0]).add(new Question(p[1], p[2]));
+        // Charger les thèmes TXT (format simple)
+        Map<String, Object> tMap = storage.getMap("themes_txt");
+        for (Map.Entry<String, Object> entry : tMap.entrySet()) {
+            String t = entry.getKey();
+            if (!(entry.getValue() instanceof List)) continue;
+            List<Map<String, Object>> qs = (List<Map<String, Object>>) entry.getValue();
+            for (Map<String, Object> q : qs) {
+                String quest = SimpleJson.toStr(q.get("question"), null);
+                String ans   = SimpleJson.toStr(q.get("answer"), null);
+                if (quest != null && ans != null) {
+                    themes.computeIfAbsent(t, k -> new ArrayList<>())
+                          .add(new Question(quest, ans));
+                }
             }
-        } catch (IOException e) {
-            System.out.println("Erreur chargement thèmes");
-        }
-    }
-
-    private void chargerJson(String fichier) {
-        try {
-            String content = Files.readString(new File(fichier).toPath(), StandardCharsets.UTF_8);
-            Pattern objPattern = Pattern.compile("\\{[^}]*\\}");
-            Matcher m = objPattern.matcher(content);
-            while (m.find()) {
-                String obj = m.group();
-                String theme = extraireChamp(obj, "theme");
-                String question = extraireChamp(obj, "question");
-                String answer = extraireChamp(obj, "answer");
-                if (theme == null || question == null || answer == null) continue;
-                int difficulty = extraireChampInt(obj, "difficulty", 1);
-                int points = extraireChampInt(obj, "points", 10);
-                themes.putIfAbsent(theme, new ArrayList<>());
-                themes.get(theme).add(new Question(question, answer, difficulty, points));
-            }
-        } catch (IOException e) {
-            System.out.println("Erreur chargement thèmes JSON");
-        }
-    }
-
-    private String extraireChamp(String obj, String key) {
-        Pattern p = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"(.*?)\"");
-        Matcher m = p.matcher(obj);
-        if (!m.find()) return null;
-        return unescape(m.group(1));
-    }
-
-    private String unescape(String v) {
-        return v.replace("\\\\n", "\n")
-                .replace("\\\\t", "\t")
-                .replace("\\\\\"", "\"")
-                .replace("\\\\", "\\");
-    }
-
-    private int extraireChampInt(String obj, String key, int defaultValue) {
-        Pattern p = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(\\d+)");
-        Matcher m = p.matcher(obj);
-        if (!m.find()) return defaultValue;
-        try {
-            return Integer.parseInt(m.group(1));
-        } catch (NumberFormatException e) {
-            return defaultValue;
         }
     }
 

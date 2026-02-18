@@ -1,5 +1,7 @@
 package data;
 
+import java.util.Locale;
+
 /**
  * Représente une question de quiz avec difficulté et points.
  * Supporte la correspondance floue (distance de Levenshtein) pour tolérer les fautes.
@@ -78,7 +80,7 @@ public class Question {
     // --- Helpers ---
 
     private static String normaliser(String s) {
-        return s.trim().toLowerCase()
+        return s.trim().toLowerCase(Locale.ROOT)
             .replaceAll("[àáâãäå]", "a")
             .replaceAll("[èéêë]", "e")
             .replaceAll("[ìíîï]", "i")

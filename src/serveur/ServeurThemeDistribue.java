@@ -35,11 +35,12 @@ public class ServeurThemeDistribue {
 
     public ServeurThemeDistribue(SlaveConfig config) {
         this.config = config;
-        this.themes = new Themes(config.getFichierThemes());
-        this.scoreService = new ScoreService(config.getFichierScores());
+        StorageManager storage = new StorageManager(config.getFichierStorage());
+        this.themes = new Themes(storage);
+        this.scoreService = new ScoreService(storage, config.getPartitionKey());
         this.matchmaking = new MatchmakingService(config.getMinJoueursMatch(), config.getMaxJoueursMatch());
-        this.authManager = new AuthManager(config.getFichierUsers());
-        this.matchHistory = new MatchHistory(config.getFichierMatchHistory());
+        this.authManager = new AuthManager(storage);
+        this.matchHistory = new MatchHistory(storage);
         this.log = new ConsoleLogger(config.getId());
     }
 

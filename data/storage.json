@@ -1,0 +1,361 @@
+{
+  "users": [
+    {
+      "username": "Ianjara",
+      "salt": "e0f9630d5965983b5f118642a580ae47",
+      "hash": "54b1bfb8190f2e232c5f63f7a25f48f4a9d2bc3b131be464cf799c326a02f185"
+    },
+    {
+      "username": "Weedman",
+      "salt": "bb1124878973c874c998d90b07b75250",
+      "hash": "0dc1cd7498d79cd58a4316a0d0830574ba8bde39de5dc177270e891e4df2d735"
+    },
+    {
+      "username": "Jean",
+      "salt": "0eb240cb333ac64de1b403145f42cd44",
+      "hash": "eaef90d53b293c8de4b1b33f7a3a68dcff0fa5369a5271946e6d2b22ef1f6717"
+    },
+    {
+      "username": "Paul",
+      "salt": "14d428b20a57385e4818da0bc9553221",
+      "hash": "73b3f8aa2e6faa1d06e83e6630937766214feb1004df20010850dd1763ba01ee"
+    }
+  ],
+  "themes_json": [
+    {
+      "theme": "Maths",
+      "question": "Un rectangle mesure 12 cm par 7 cm. Quelle est son aire en cm2 ?",
+      "answer": "84",
+      "difficulty": 2,
+      "points": 10
+    },
+    {
+      "theme": "Maths",
+      "question": "Si f(x)=2x^2-3x+1, quelle est la valeur de f(4) ?",
+      "answer": "21",
+      "difficulty": 3,
+      "points": 10
+    },
+    {
+      "theme": "Maths",
+      "question": "Suite arithmetique: u1=5 et raison=3. Quelle est u6 ?",
+      "answer": "20",
+      "difficulty": 2,
+      "points": 10
+    },
+    {
+      "theme": "Histoire",
+      "question": "Quel traite de 1919 a mis fin a la Premiere Guerre mondiale ?",
+      "answer": "Versailles",
+      "difficulty": 2,
+      "points": 10
+    },
+    {
+      "theme": "Histoire",
+      "question": "Qui etait chancelier d'Allemagne au debut de la Seconde Guerre mondiale ?",
+      "answer": "Adolf Hitler",
+      "difficulty": 2,
+      "points": 10
+    },
+    {
+      "theme": "Histoire",
+      "question": "En 1957, quel traite fonde la CEE ?",
+      "answer": "Traite de Rome",
+      "difficulty": 3,
+      "points": 10
+    },
+    {
+      "theme": "Geographie",
+      "question": "Quel est le plus long fleuve d'Europe ?",
+      "answer": "Volga",
+      "difficulty": 3,
+      "points": 10
+    },
+    {
+      "theme": "Geographie",
+      "question": "Quelle est la capitale du Canada ?",
+      "answer": "Ottawa",
+      "difficulty": 2,
+      "points": 10
+    },
+    {
+      "theme": "Geographie",
+      "question": "Quel desert s'etend sur une grande partie de l'Afrique du Nord ?",
+      "answer": "Sahara",
+      "difficulty": 1,
+      "points": 10
+    }
+  ],
+  "themes_txt": {
+    "Maths": [
+      {
+        "question": "Combien font 7 + 5 ?",
+        "answer": "12"
+      },
+      {
+        "question": "Combien font 9 * 3 ?",
+        "answer": "27"
+      }
+    ],
+    "Histoire": [
+      {
+        "question": "En quelle annee a commence la Revolution francaise ?",
+        "answer": "1789"
+      },
+      {
+        "question": "Qui etait le premier empereur romain ?",
+        "answer": "Auguste"
+      }
+    ],
+    "Geographie": [
+      {
+        "question": "Capitale de l'Italie ?",
+        "answer": "Rome"
+      },
+      {
+        "question": "Quel fleuve traverse Paris ?",
+        "answer": "Seine"
+      }
+    ]
+  },
+  "registre": [
+    {
+      "id": "S3",
+      "host": "localhost",
+      "port": 5003,
+      "theme": "Géographie",
+      "charge": 0,
+      "actif": false,
+      "partitionDebut": 67,
+      "partitionFin": 99
+    },
+    {
+      "id": "S4",
+      "host": "localhost",
+      "port": 5004,
+      "theme": "Maths",
+      "charge": 2,
+      "actif": false,
+      "partitionDebut": 0,
+      "partitionFin": 33
+    },
+    {
+      "id": "S1",
+      "host": "localhost",
+      "port": 5001,
+      "theme": "Maths",
+      "charge": 4,
+      "actif": true,
+      "partitionDebut": 0,
+      "partitionFin": 33
+    },
+    {
+      "id": "S2",
+      "host": "localhost",
+      "port": 5002,
+      "theme": "Histoire",
+      "charge": 1,
+      "actif": true,
+      "partitionDebut": 34,
+      "partitionFin": 66
+    }
+  ],
+  "scores_global": {
+    "toto": 10,
+    "Ianjara": 265,
+    "Weedman": 77,
+    "Jean": 160,
+    "Paul": 40
+  },
+  "scores_partitions": {
+    "partition_0-33": {
+      "Jean": 160,
+      "Paul": 40
+    },
+    "partition_34-66": {
+      "toto": 10
+    }
+  },
+  "matches": [
+    {
+      "matchId": "M1770122101968-108",
+      "timestampMs": 1770122139665,
+      "theme": "Histoire",
+      "username": "Paul",
+      "score": 0,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770122101968-108",
+      "timestampMs": 1770122139665,
+      "theme": "Histoire",
+      "username": "Jean",
+      "score": 0,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "M1770122953015-761",
+      "timestampMs": 1770122983566,
+      "theme": "Maths",
+      "username": "Paul",
+      "score": 10,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770122953015-761",
+      "timestampMs": 1770122983566,
+      "theme": "Maths",
+      "username": "Jean",
+      "score": 10,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "M1770123969575-936",
+      "timestampMs": 1770124209891,
+      "theme": "Maths",
+      "username": "Paul",
+      "score": 0,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770123969575-936",
+      "timestampMs": 1770124209891,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 0,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "M1770124623237-242",
+      "timestampMs": 1770124758279,
+      "theme": "Maths",
+      "username": "Jean",
+      "score": 10,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770124623237-242",
+      "timestampMs": 1770124758279,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 0,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "M1770125071314-544",
+      "timestampMs": 1770125153279,
+      "theme": "Maths",
+      "username": "Jean",
+      "score": 80,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770125071314-544",
+      "timestampMs": 1770125153279,
+      "theme": "Maths",
+      "username": "Paul",
+      "score": 30,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "M1770125511085-502",
+      "timestampMs": 1770125543840,
+      "theme": "Maths",
+      "username": "Paul",
+      "score": 0,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1770125511085-502",
+      "timestampMs": 1770125543840,
+      "theme": "Maths",
+      "username": "Jean",
+      "score": 0,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "SOLO-1771434201129-669",
+      "timestampMs": 1771434233700,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 0,
+      "rank": 1,
+      "total": 1
+    },
+    {
+      "matchId": "SOLO-1771434916883-863",
+      "timestampMs": 1771434942487,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 61,
+      "rank": 1,
+      "total": 1
+    },
+    {
+      "matchId": "SOLO-1771442327769-341",
+      "timestampMs": 1771442359432,
+      "theme": "Histoire",
+      "username": "Ianjara",
+      "score": 29,
+      "rank": 1,
+      "total": 1
+    },
+    {
+      "matchId": "SOLO-1771445862183-393",
+      "timestampMs": 1771445930002,
+      "theme": "Histoire",
+      "username": "Ianjara",
+      "score": 0,
+      "rank": 1,
+      "total": 1
+    },
+    {
+      "matchId": "SOLO-1771446247457-386",
+      "timestampMs": 1771446277481,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 91,
+      "rank": 1,
+      "total": 1
+    },
+    {
+      "matchId": "M1771446346584-596",
+      "timestampMs": 1771446391617,
+      "theme": "Maths",
+      "username": "Ianjara",
+      "score": 60,
+      "rank": 1,
+      "total": 2
+    },
+    {
+      "matchId": "M1771446346584-596",
+      "timestampMs": 1771446391617,
+      "theme": "Maths",
+      "username": "Jean",
+      "score": 50,
+      "rank": 2,
+      "total": 2
+    },
+    {
+      "matchId": "SOLO-1771446892415-514",
+      "timestampMs": 1771446906587,
+      "theme": "Maths",
+      "username": "Weedman",
+      "score": 77,
+      "rank": 1,
+      "total": 1
+    }
+  ]
+}

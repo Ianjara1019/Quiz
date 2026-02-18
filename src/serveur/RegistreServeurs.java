@@ -1,6 +1,8 @@
 package serveur;
 
-import java.io.*;
+import data.SimpleJson;
+import data.StorageManager;
+
 import java.util.*;
 
 /**
@@ -9,11 +11,11 @@ import java.util.*;
  */
 public class RegistreServeurs {
     private Map<String, InfoServeur> serveurs = new HashMap<>();
-    private String fichierRegistre;
+    private final StorageManager storage;
     private final int partitionMax;
 
-    public RegistreServeurs(String fichierRegistre) {
-        this.fichierRegistre = fichierRegistre;
+    public RegistreServeurs(StorageManager storage) {
+        this.storage = storage;
         this.partitionMax = chargerPartitionMax();
         charger();
     }
@@ -182,19 +184,19 @@ public class RegistreServeurs {
      * Charge le registre depuis le fichier
      */
     private void charger() {
-        File f = new File(fichierRegistre);
-        if (!f.exists()) return;
-
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
-            String ligne;
-            while ((ligne = br.readLine()) != null) {
-                if (!ligne.trim().isEmpty()) {
-                    InfoServeur info = InfoServeur.fromString(ligne);
-                    serveurs.put(info.id, info);
-                }
-            }
-        } catch (IOException e) {
-            System.err.println("Erreur chargement registre: " + e.getMessage());
+        List<Map<String, Object>> list = storage.getList("registre");
+        for (Map<String, Object> m : list) {
+            String id    = SimpleJson.toStr(m.get("id"), "");
+            String host  = SimpleJson.toStr(m.get("host"), "localhost");
+            int port     = SimpleJson.toInt(m.get("port"), 0);
+            String theme = SimpleJson.toStr(m.get("theme"), "");
+            int pDebut   = SimpleJson.toInt(m.get("partitionDebut"), 0);
+            int pFin     = SimpleJson.toInt(m.get("partitionFin"), 0);
+            InfoServeur info = new InfoServeur(id, host, port, theme, pDebut, pFin);
+            info.charge = SimpleJson.toInt(m.get("charge"), 0);
+            info.actif  = SimpleJson.toBool(m.get("actif"), true);
+            info.dernierHeartbeat = System.currentTimeMillis();
+            serveurs.put(id, info);
         }
     }
 
@@ -202,11 +204,20 @@ public class RegistreServeurs {
      * Sauvegarde le registre dans le fichier
      */
     private void sauvegarder() {
-        try (PrintWriter pw = new PrintWriter(new FileWriter(fichierRegistre))) {
-            serveurs.values().forEach(s -> pw.println(s.toString()));
-        } catch (IOException e) {
-            System.err.println("Erreur sauvegarde registre: " + e.getMessage());
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+        for (InfoServeur s : serveurs.values()) {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", s.id);
+            m.put("host", s.host);
+            m.put("port", s.port);
+            m.put("theme", s.theme);
+            m.put("charge", s.charge);
+            m.put("actif", s.actif);
+            m.put("partitionDebut", s.partitionDebut);
+            m.put("partitionFin", s.partitionFin);
+            list.add(m);
         }
+        storage.sauvegarder("registre", list);
     }
 
     /**

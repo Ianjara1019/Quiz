@@ -1,17 +1,13 @@
 package data;
 
-import java.io.*;
-import java.time.*;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public class MatchHistory {
-    private final File fichier;
+    private final StorageManager storage;
     private final Object verrou = new Object();
-    private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    public MatchHistory(String chemin) {
-        this.fichier = new File(chemin);
+    public MatchHistory(StorageManager storage) {
+        this.storage = storage;
     }
 
     public static class PlayerScore {
@@ -30,38 +26,39 @@ public class MatchHistory {
 
     public void enregistrerMatch(String matchId, String theme, long timestampMs, List<PlayerScore> scores) {
         synchronized (verrou) {
-            try (PrintWriter pw = new PrintWriter(new FileWriter(fichier, true))) {
-                for (PlayerScore ps : scores) {
-                    pw.println(matchId + ";" + timestampMs + ";" + theme + ";" + ps.username + ";" + ps.score
-                        + ";" + ps.rank + ";" + ps.total);
-                }
-            } catch (IOException e) {
-                System.err.println("Erreur sauvegarde historique: " + e.getMessage());
+            List<Map<String, Object>> matches = storage.getList("matches");
+            for (PlayerScore ps : scores) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("matchId", matchId);
+                entry.put("timestampMs", timestampMs);
+                entry.put("theme", theme);
+                entry.put("username", ps.username);
+                entry.put("score", ps.score);
+                entry.put("rank", ps.rank);
+                entry.put("total", ps.total);
+                matches.add(entry);
             }
+            storage.sauvegarder("matches", matches);
         }
     }
 
     public List<String> getHistoriquePourUser(String username, int limit) {
         List<String> lignes = new ArrayList<>();
-        if (!fichier.exists()) return lignes;
         synchronized (verrou) {
-            try (BufferedReader br = new BufferedReader(new FileReader(fichier))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    String[] parts = line.split(";");
-                    if (parts.length < 7) continue;
-                    if (!parts[3].equals(username)) continue;
-                    String matchId = parts[0];
-                    long ts = Long.parseLong(parts[1]);
-                    String theme = parts[2];
-                    String score = parts[4];
-                    String rank = parts[5];
-                    String total = parts[6];
-                    String date = FORMAT.format(Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()));
-                    lignes.add(date + ";" + matchId + ";" + theme + ";" + score + ";" + rank + "/" + total);
-                }
-            } catch (IOException e) {
-                System.err.println("Erreur lecture historique: " + e.getMessage());
+            List<Map<String, Object>> matches = storage.getList("matches");
+            for (Map<String, Object> m : matches) {
+                String user = SimpleJson.toStr(m.get("username"), "");
+                if (!user.equals(username)) continue;
+                long ts      = SimpleJson.toLong(m.get("timestampMs"), 0);
+                String mid   = SimpleJson.toStr(m.get("matchId"), "");
+                String theme = SimpleJson.toStr(m.get("theme"), "");
+                int score    = SimpleJson.toInt(m.get("score"), 0);
+                int rank     = SimpleJson.toInt(m.get("rank"), 0);
+                int total    = SimpleJson.toInt(m.get("total"), 0);
+                java.time.Instant inst = java.time.Instant.ofEpochMilli(ts);
+                String date = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .format(inst.atZone(java.time.ZoneId.systemDefault()));
+                lignes.add(date + ";" + mid + ";" + theme + ";" + score + ";" + rank + "/" + total);
             }
         }
         if (lignes.size() > limit) {

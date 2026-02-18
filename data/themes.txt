@@ -1,6 +1,0 @@
-Maths;Combien font 7 + 5 ?;12
-Maths;Combien font 9 * 3 ?;27
-Histoire;En quelle annee a commence la Revolution francaise ?;1789
-Histoire;Qui etait le premier empereur romain ?;Auguste
-Geographie;Capitale de l'Italie ?;Rome
-Geographie;Quel fleuve traverse Paris ?;Seine

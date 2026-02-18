@@ -28,10 +28,8 @@ public class SlaveConfig {
     private final String secretPartage;
 
     // --- Fichiers ---
-    private final String fichierThemes;
-    private final String fichierUsers;
-    private final String fichierMatchHistory;
-    private final String fichierScores;
+    private final String fichierStorage;
+    private final String partitionKey;
 
     private SlaveConfig(Builder b) {
         this.id = b.id;
@@ -50,10 +48,8 @@ public class SlaveConfig {
         this.roundTimerMs = b.roundTimerMs;
         this.partitionMax = b.partitionMax;
         this.secretPartage = b.secretPartage;
-        this.fichierThemes = b.fichierThemes;
-        this.fichierUsers = b.fichierUsers;
-        this.fichierMatchHistory = b.fichierMatchHistory;
-        this.fichierScores = b.fichierScores;
+        this.fichierStorage = b.fichierStorage;
+        this.partitionKey = "partition_" + b.partitionDebut + "-" + b.partitionFin;
     }
 
     // --- Getters ---
@@ -73,10 +69,8 @@ public class SlaveConfig {
     public int getRoundTimerMs()         { return roundTimerMs; }
     public int getPartitionMax()         { return partitionMax; }
     public String getSecretPartage()     { return secretPartage; }
-    public String getFichierThemes()     { return fichierThemes; }
-    public String getFichierUsers()      { return fichierUsers; }
-    public String getFichierMatchHistory() { return fichierMatchHistory; }
-    public String getFichierScores()     { return fichierScores; }
+    public String getFichierStorage()       { return fichierStorage; }
+    public String getPartitionKey()          { return partitionKey; }
 
     /**
      * Construit la config depuis les arguments CLI + variables d'environnement.
@@ -105,10 +99,7 @@ public class SlaveConfig {
             .roundTimerMs(envInt("QUIZ_ROUND_TIMER_MS", 45000))
             .partitionMax(envInt("QUIZ_PARTITION_MAX", 100))
             .secretPartage(envStr("QUIZ_SHARED_SECRET"))
-            .fichierThemes(resolveThemesFile())
-            .fichierUsers(envStr("QUIZ_USERS_FILE", "data/users.txt"))
-            .fichierMatchHistory(envStr("QUIZ_MATCH_HISTORY_FILE", "data/scores_matches.txt"))
-            .fichierScores("data/scores_partition_" + partDebut + "-" + partFin + ".txt")
+            .fichierStorage(envStr("QUIZ_STORAGE_FILE", "data/storage.json"))
             .build();
     }
 
@@ -129,10 +120,7 @@ public class SlaveConfig {
         private int roundTimerMs = 45000;
         private int partitionMax = 100;
         private String secretPartage;
-        private String fichierThemes = "data/themes.json";
-        private String fichierUsers = "data/users.txt";
-        private String fichierMatchHistory = "data/scores_matches.txt";
-        private String fichierScores;
+        private String fichierStorage = "data/storage.json";
 
         public Builder(String id, String theme, int port, int partDebut, int partFin) {
             this.id = id;
@@ -140,7 +128,7 @@ public class SlaveConfig {
             this.port = port;
             this.partitionDebut = partDebut;
             this.partitionFin = partFin;
-            this.fichierScores = "data/scores_partition_" + partDebut + "-" + partFin + ".txt";
+            this.fichierStorage = "data/storage.json";
         }
 
         public Builder hostMaitre(String v)        { this.hostMaitre = v; return this; }
@@ -154,10 +142,7 @@ public class SlaveConfig {
         public Builder roundTimerMs(int v)         { this.roundTimerMs = v; return this; }
         public Builder partitionMax(int v)         { this.partitionMax = v; return this; }
         public Builder secretPartage(String v)     { this.secretPartage = v; return this; }
-        public Builder fichierThemes(String v)     { this.fichierThemes = v; return this; }
-        public Builder fichierUsers(String v)      { this.fichierUsers = v; return this; }
-        public Builder fichierMatchHistory(String v) { this.fichierMatchHistory = v; return this; }
-        public Builder fichierScores(String v)     { this.fichierScores = v; return this; }
+        public Builder fichierStorage(String v)        { this.fichierStorage = v; return this; }
 
         public SlaveConfig build() { return new SlaveConfig(this); }
     }
@@ -180,11 +165,4 @@ public class SlaveConfig {
         catch (NumberFormatException e) { return def; }
     }
 
-    private static String resolveThemesFile() {
-        String env = envStr("QUIZ_THEMES_FILE");
-        if (env != null) return env;
-        java.io.File json = new java.io.File("data/themes.json");
-        if (json.exists()) return "data/themes.json";
-        return "data/themes.txt";
-    }
 }

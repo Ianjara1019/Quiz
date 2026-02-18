@@ -1,5 +1,6 @@
 package serveur;
 
+import data.StorageManager;
 import data.Themes;
 import serveur.model.ServerConfig;
 import serveur.service.ProtocolParser;
@@ -36,9 +37,10 @@ public class ServeurCentralDistribue {
 
     public ServeurCentralDistribue(ServerConfig config) {
         this.config = config;
-        this.registre = new RegistreServeurs(config.getFichierRegistre());
-        this.scoreService = new ScoreService(config.getFichierScoresGlobal());
-        this.themes = new Themes(config.getFichierThemes());
+        StorageManager storage = new StorageManager(config.getFichierStorage());
+        this.registre = new RegistreServeurs(storage);
+        this.scoreService = new ScoreService(storage);
+        this.themes = new Themes(storage);
         this.log = new ConsoleLogger("MAITRE");
     }
 
